@@ -9,17 +9,20 @@ function createPlayer(w, h) {
 		// position
 		x: canvas.width/2 - w/2,
 		y: canvas.height - h,
+		feetY: canvas.height,
+		targetFeetY: canvas.height,
+		lineIndex: 0,
 		prevX: 0,
 		frameX: 0,
 		frameY: 0,
 		// movement
 		speed: 4,
-		jumpSpeed: 17,
-		jumping: false,
-		airTime: 0,
 		velocity: .05,
 		velocityUp: 0,
 		velocityDown: 0,
+		verticalMoveSpeed: 8,
+		verticalRepeatDirection: 0,
+		verticalRepeatFrames: 0,
 		// special pickup vars
 		pickup: false,
 		reverse: false,
@@ -29,49 +32,58 @@ function createPlayer(w, h) {
 			// record old position
 			this.prevX = this.x;
 			
-			// stop at bottom of screen
-			if (this.y + this.height >= canvas.height) {
-				this.jumping = false;
-				this.y = canvas.height - this.height;
-				this.velocityDown = 0;
-			}
-			
 			// pick up
-			if (this.velocityDown <= 0 && !this.jumping && !this.pickup && this.x == this.prevX && keys.space in keysDown) {
-				this.pickup = true;
-				this.frameX = 7;
-				this.velocity = 0;
-				
-				// mark as dropping so we don't pick it up again
-				if (this.carrying != -1)
-					this.drop = true;
+			if (!this.pickup && this.x == this.prevX && keys.space in keysDown) {
+				if (this.carrying != -1 || getPickupCandidate()) {
+					this.pickup = true;
+					this.frameX = 7;
+					this.velocity = 0;
+					
+					// mark as dropping so we don't pick it up again
+					if (this.carrying != -1)
+						this.drop = true;
+				}
 			}
 			
 			// can't move if picking up
 			if (this.pickup)
 				return;
-		
-			// player presses up to jump
-			if (!this.jumping && keys.up in keysDown && this.velocityDown <= 0) { 
-				this.velocityUp = this.jumpSpeed/2;
+
+			// move one grid line at a time, with deterministic repeat while the key is held
+			var verticalDirection = getVerticalStepDirection();
+			if (verticalDirection !== 0) {
+				if (this.verticalRepeatDirection !== verticalDirection) {
+					this.verticalRepeatDirection = verticalDirection;
+					this.verticalRepeatFrames = 0;
+					queuePlayerVerticalStep(verticalDirection);
+				}
+				else {
+					this.verticalRepeatFrames++;
+					if (this.verticalRepeatFrames >= verticalStepInitialDelayFrames && ((this.verticalRepeatFrames - verticalStepInitialDelayFrames) % verticalStepRepeatFrames === 0))
+						queuePlayerVerticalStep(verticalDirection);
+				}
+			}
+			else {
+				this.verticalRepeatDirection = 0;
+				this.verticalRepeatFrames = 0;
+			}
+
+			// advance toward the requested line using a fixed travel speed
+			if (this.feetY !== this.targetFeetY) {
+				var verticalDelta = this.targetFeetY > this.feetY ? Math.min(this.verticalMoveSpeed, this.targetFeetY - this.feetY) : -Math.min(this.verticalMoveSpeed, this.feetY - this.targetFeetY);
+				this.feetY += verticalDelta;
+				this.y = this.feetY - this.height;
+				this.velocityUp = 0;
 				this.velocityDown = 0;
-				this.jumping = true;
+				this.jumping = false;
 				this.airTime = 0;
 			}
-			// jump higher if held longer
-			else if (this.jumping && this.airTime > 1 && this.airTime < 12 && keys.up in keysDown) {
-				this.velocityUp += .25;
-			}
-			// fall faster if jump isn't as strong
-			else if (this.jumping && this.velocityUp > 0 && this.airTime < 50) {
-				this.velocityUp -= 2;
-			}
-			// update gravity
 			else {
-				if (this.velocityUp > 0)
-					this.velocityUp--;
-				else if (this.velocityDown < this.jumpSpeed)
-					this.velocityDown += gravitySpeed;
+				this.y = this.feetY - this.height;
+				this.velocityUp = 0;
+				this.velocityDown = 0;
+				this.jumping = false;
+				this.airTime = 0;
 			}
 			
 			// player presses left
@@ -94,18 +106,6 @@ function createPlayer(w, h) {
 			// cap velocity at 1
 			if (this.velocity > 1)
 				this.velocity = 1;
-			
-			// final jump
-			if (this.velocityUp > 0)
-				this.y = this.y - this.velocityUp;
-			// final fall
-			else if (this.velocityUp < 1) {
-				this.y = this.y + this.velocityDown;
-			}
-
-			// update time in air when jumping
-			if (this.jumping)
-				this.airTime++;
 		},
 		draw: function() {
 			// increment animation delay
@@ -141,21 +141,10 @@ function createPlayer(w, h) {
 							
 							// $&%^! yeah i dropped it
 							if (this.drop) {
-								this.carrying = -1;
-								this.drop = false;
-								
-								validate(0); // game.js
+								finalizeHeldBlockDrop(); // game.js
 							}
 						}
 					}
-				}
-				// falling
-				else if (this.velocityDown > 0.5) {	
-					this.frameX = 11;
-				}
-				// jumping
-				else if (this.jumping) {
-					this.frameX = 10;
 				}
 				// walking
 				else if (keys.left in keysDown || keys.right in keysDown) {				

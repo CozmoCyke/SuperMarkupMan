@@ -49,7 +49,6 @@ function loadImg(x) {
 
 // start loading graphics
 var spriteSheet = loadImg('images/spritesheet.png');
-var plankImage = loadImg('images/plank.png');
 
 // tag graphics
 var tagA = loadImg('images/tag-a.png');
@@ -84,9 +83,74 @@ var render = function () {
 	ctx.globalAlpha = 1;
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	
-	for (i = 0; i < platforms.length; i++) {
-		platforms[i].draw();
+	// editor-style backdrop and line numbers
+	ctx.fillStyle = '#fbfbf8';
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.fillStyle = 'rgba(228, 232, 238, 0.9)';
+	ctx.fillRect(0, 0, codeLineBlockLeft, canvas.height);
+	ctx.fillStyle = 'rgba(175, 182, 190, 0.85)';
+	ctx.fillRect(codeLineBlockLeft - 1, 0, 1, canvas.height);
+	var activeZone = getPlayerActiveZone();
+	ctx.fillStyle = 'rgba(89, 101, 113, ' + (activeLineHighlightAlpha * 0.55) + ')';
+	ctx.fillRect(0, activeZone.top, canvas.width, activeZone.height);
+	ctx.strokeStyle = 'rgba(89, 101, 113, ' + (activeLineHighlightAlpha * 1.1) + ')';
+	ctx.strokeRect(0.5, activeZone.top + 0.5, canvas.width - 1, activeZone.height - 1);
+	ctx.fillStyle = 'rgba(89, 101, 113, ' + Math.min(0.26, activeLineHighlightAlpha * 1.85) + ')';
+	ctx.fillRect(0, activeZone.top, codeLineBlockLeft, activeZone.height);
+	
+	var heldBlock = getHeldBlock();
+	if (heldBlock) {
+		var dropPreviewRect = getBlockDropTarget(heldBlock);
+		ctx.save();
+		ctx.fillStyle = dropPreviewRect.valid ? 'rgba(89, 101, 113, 0.10)' : 'rgba(192, 57, 43, 0.16)';
+		ctx.strokeStyle = dropPreviewRect.valid ? 'rgba(89, 101, 113, 0.55)' : 'rgba(192, 57, 43, 0.85)';
+		ctx.fillRect(dropPreviewRect.x, dropPreviewRect.y, heldBlock.width, heldBlock.height);
+		ctx.strokeRect(dropPreviewRect.x + 0.5, dropPreviewRect.y + 0.5, heldBlock.width - 1, heldBlock.height - 1);
+		if (!dropPreviewRect.valid) {
+			ctx.fillStyle = 'rgba(192, 57, 43, 0.95)';
+			ctx.font = 'bold 11px monospace';
+			ctx.textAlign = 'left';
+			ctx.textBaseline = 'alphabetic';
+			ctx.fillText('invalid target', codeLineBlockLeft + 6, 18);
+		}
+		ctx.restore();
 	}
+
+	ctx.save();
+	ctx.fillStyle = 'rgba(35, 35, 35, 0.72)';
+	ctx.font = '10px monospace';
+	ctx.textAlign = 'right';
+	ctx.textBaseline = 'top';
+	ctx.fillText('player.lineIndex: ' + player.lineIndex, canvas.width - 6, 6);
+	ctx.fillText('activeLineIndex: ' + activeLineIndex, canvas.width - 6, 18);
+	ctx.fillText('activeDisplayLineNumber: ' + activeDisplayLineNumber, canvas.width - 6, 30);
+	ctx.fillText('highlightedMarginIndex: ' + highlightedMarginIndex, canvas.width - 6, 42);
+	ctx.restore();
+	
+	ctx.fillStyle = '#7c848d';
+	ctx.font = '12px monospace';
+	ctx.textAlign = 'right';
+	ctx.textBaseline = 'middle';
+	for (i = 0; i < codeLines.length; i++) {
+		if (i === highlightedMarginIndex) {
+			ctx.fillStyle = '#4f5b66';
+			ctx.font = 'bold 12px monospace';
+		}
+		else {
+			ctx.fillStyle = '#7c848d';
+			ctx.font = '12px monospace';
+		}
+
+		ctx.fillText(codeLines[i].number, codeLineTextLeft + codeLineNumberWidth, codeLines[i].y + Math.round(codeLineHeight / 2));
+	}
+
+	// physical baseline for the avatar and block stack
+	ctx.fillStyle = 'rgba(176, 184, 191, 0.25)';
+	ctx.fillRect(codeLineBlockLeft, baselineY - 2, canvas.width - codeLineBlockLeft, 5);
+	ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+	ctx.fillRect(codeLineBlockLeft, baselineY - 1, canvas.width - codeLineBlockLeft, 1);
+	ctx.fillStyle = 'rgba(102, 112, 123, 0.9)';
+	ctx.fillRect(codeLineBlockLeft, baselineY, canvas.width - codeLineBlockLeft, 1);
 	
 	player.draw();
 	

@@ -4,7 +4,7 @@ var tags;
 var level;
 var alt = new Array;
 var blocks = new Array;
-var platforms = new Array;
+var codeLines = new Array;
 
 // variables
 var collisionPadding = 6;
@@ -12,6 +12,283 @@ var gravitySpeed = 0.3;
 var gameOver = false;
 var paused = false;
 var firstTime = true;
+var codeLineHeight = blockHeight;
+var codeLineTop = 36;
+var codeLineNumberWidth = 16;
+var codeLineTextLeft = 8;
+var codeLineBlockLeft = 30;
+var codeGridBottom = 0;
+var baselineY = 0;
+var activeLineIndex = 0;
+var activeDisplayLineNumber = 1;
+var highlightedMarginIndex = 0;
+var activeLineHighlightAlpha = 0.14;
+var activeZoneLineCount = 2;
+var verticalStepInitialDelayFrames = 12;
+var verticalStepRepeatFrames = 4;
+
+var clamp = function(value, min, max) {
+	return Math.max(min, Math.min(max, value));
+};
+
+var getBlockLineIndex = function(block) {
+	return clamp(Math.round(((block.y + block.height) - codeLineTop) / codeLineHeight), 0, codeLines.length - 1);
+};
+
+var getLineTop = function(index) {
+	return codeLineTop + (index * codeLineHeight);
+};
+
+var getBlockDepositTop = function(lineIndex) {
+	return getLineTop(lineIndex) - blockHeight;
+};
+
+var getPlayAreaBounds = function() {
+	return {
+		left: codeLineBlockLeft,
+		top: codeLineTop - blockHeight,
+		right: canvas.width - codeLineBlockLeft,
+		bottom: baselineY
+	};
+};
+
+var getPlayerActiveZone = function() {
+	return {
+		top: player.feetY - (activeZoneLineCount * codeLineHeight),
+		bottom: player.feetY,
+		height: activeZoneLineCount * codeLineHeight
+	};
+};
+
+var rectanglesOverlap = function(a, b) {
+	return a.x < b.x + b.width &&
+		a.x + a.width > b.x &&
+		a.y < b.y + b.height &&
+		a.y + a.height > b.y;
+};
+
+var getHeldBlock = function() {
+	return player.carrying != -1 ? blocks[player.carrying] : null;
+};
+
+var getPickupCandidate = function() {
+	var candidate = null;
+	var bestDistance = Infinity;
+	var playerCenterX = player.x + player.width / 2;
+
+	for (var i = 0; i < blocks.length; i++) {
+		var block = blocks[i];
+		var blockLineIndex = (block.lineIndex !== undefined && block.lineIndex !== null) ? block.lineIndex : getBlockLineIndex(block);
+
+		if (block.index === player.carrying)
+			continue;
+		if (blockLineIndex !== player.lineIndex)
+			continue;
+		if (!(player.x + player.width >= block.x && player.x <= block.x + block.width))
+			continue;
+
+		var distance = Math.abs(playerCenterX - (block.x + block.width / 2));
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			candidate = block;
+		}
+	}
+
+	return candidate;
+};
+
+var validateBlockPlacement = function(block, targetX, targetY, targetLineIndex) {
+	var pickupLineIndex = (block.pickupLineIndex !== undefined && block.pickupLineIndex !== null) ? block.pickupLineIndex : getBlockLineIndex(block);
+	var pickupPlayerLineIndex = (block.pickupPlayerLineIndex !== undefined && block.pickupPlayerLineIndex !== null) ? block.pickupPlayerLineIndex : player.lineIndex;
+	var pickupRelativeLineOffset = (block.pickupRelativeLineOffset !== undefined && block.pickupRelativeLineOffset !== null) ? block.pickupRelativeLineOffset : (pickupLineIndex - pickupPlayerLineIndex);
+	var resolvedLineIndex = (targetLineIndex !== undefined && targetLineIndex !== null) ? targetLineIndex : (player.lineIndex + pickupRelativeLineOffset);
+	var resolvedX = (targetX !== undefined && targetX !== null) ? targetX : (Math.round(player.x) + block.pickupOffsetFromPlayer);
+	var resolvedY = (targetY !== undefined && targetY !== null) ? targetY : getBlockDepositTop(resolvedLineIndex);
+	var targetRect = {
+		x: resolvedX,
+		y: resolvedY,
+		width: block.width,
+		height: block.height
+	};
+	var playArea = getPlayAreaBounds();
+	var valid = true;
+	var reason = '';
+
+	if (resolvedLineIndex < 0 || resolvedLineIndex >= codeLines.length) {
+		valid = false;
+		reason = 'out_of_bounds';
+	}
+	else if (targetRect.x < playArea.left || targetRect.y < playArea.top || targetRect.x + targetRect.width > playArea.right || targetRect.y + targetRect.height > playArea.bottom) {
+		valid = false;
+		reason = 'out_of_bounds';
+	}
+	else {
+		for (var j = 0; j < blocks.length; j++) {
+			if (j === block.index || j === player.carrying)
+				continue;
+
+			var blockRect = {
+				x: blocks[j].x,
+				y: blocks[j].y,
+				width: blocks[j].width,
+				height: blocks[j].height
+			};
+
+			if (rectanglesOverlap(targetRect, blockRect)) {
+				valid = false;
+				reason = 'occupied';
+				break;
+			}
+		}
+	}
+
+	return {
+		lineIndex: resolvedLineIndex,
+		columnIndex: Math.round((resolvedX - codeLineBlockLeft) / blockWidth),
+		x: resolvedX,
+		y: resolvedY,
+		valid: valid,
+		reason: reason
+	};
+};
+
+var getBlockDropTarget = function(block) {
+	return validateBlockPlacement(block);
+};
+
+var getHeldBlockVisualRect = function(block) {
+	return {
+		x: block.x,
+		y: block.y,
+		width: block.width,
+		height: block.height
+	};
+};
+
+var getPlacedBlockRect = function(block, target) {
+	return {
+		x: target.x,
+		y: target.y,
+		width: block.width,
+		height: block.height
+	};
+};
+
+var assertNoBlockOverlap = function() {
+	for (var a = 0; a < blocks.length; a++) {
+		for (var b = a + 1; b < blocks.length; b++) {
+			var blockA = blocks[a];
+			var blockB = blocks[b];
+			if (blockA.lineIndex === null || blockA.lineIndex === undefined || blockB.lineIndex === null || blockB.lineIndex === undefined)
+				continue;
+			if (rectanglesOverlap(blockA, blockB)) {
+				console.warn('Block overlap detected after deposit', {
+					overlapA: a,
+					overlapB: b
+				});
+				return false;
+			}
+		}
+	}
+
+	return true;
+};
+
+var finalizeHeldBlockDrop = function() {
+	var heldBlock = getHeldBlock();
+	if (!heldBlock)
+		return;
+
+	var dropPreviewRect = getBlockDropTarget(heldBlock);
+
+	if (dropPreviewRect.valid) {
+		var placedBlockRect = getPlacedBlockRect(heldBlock, dropPreviewRect);
+		heldBlock.lineIndex = dropPreviewRect.lineIndex;
+		heldBlock.x = placedBlockRect.x;
+		heldBlock.y = placedBlockRect.y;
+	}
+	else {
+		heldBlock.lineIndex = heldBlock.pickupLineIndex;
+		heldBlock.x = heldBlock.pickupX;
+		heldBlock.y = heldBlock.pickupY;
+	}
+
+	heldBlock.velocityDown = 0;
+	heldBlock.pickupLineIndex = null;
+	heldBlock.pickupColumnIndex = null;
+	heldBlock.pickupPlayerLineIndex = null;
+	heldBlock.pickupRelativeLineOffset = null;
+	heldBlock.pickupPlayerX = null;
+	heldBlock.pickupOffsetFromPlayer = null;
+	heldBlock.pickupX = null;
+	heldBlock.pickupY = null;
+
+	player.carrying = -1;
+	player.drop = false;
+
+	assertNoBlockOverlap();
+	validate(0); // game.js
+};
+
+var getGridBottom = function() {
+	return codeLines.length ? getLineTop(codeLines.length - 1) : canvas.height - blockHeight;
+};
+
+var syncBlockToLine = function(block, lineIndex) {
+	block.lineIndex = clamp(lineIndex, 0, codeLines.length - 1);
+	block.y = getBlockDepositTop(block.lineIndex);
+	block.velocityDown = 0;
+};
+
+var syncPlayerToLine = function(lineIndex) {
+	var nextLineIndex = clamp(lineIndex, 0, codeLines.length - 1);
+	player.lineIndex = nextLineIndex;
+	player.feetY = codeLines[nextLineIndex].y;
+	player.targetFeetY = player.feetY;
+	player.y = player.feetY - player.height;
+	player.velocityUp = 0;
+	player.velocityDown = 0;
+	player.jumping = false;
+};
+
+var queuePlayerVerticalStep = function(direction) {
+	if (!codeLines.length)
+		return false;
+
+	var nextLineIndex = clamp(player.lineIndex + direction, 0, codeLines.length - 1);
+	if (nextLineIndex === player.lineIndex && player.targetFeetY === codeLines[nextLineIndex].y)
+		return false;
+
+	player.lineIndex = nextLineIndex;
+	player.targetFeetY = codeLines[nextLineIndex].y;
+	return true;
+};
+
+var getVerticalStepDirection = function() {
+	if ((keys.up in keysDown) && !(keys.down in keysDown))
+		return -1;
+	if ((keys.down in keysDown) && !(keys.up in keysDown))
+		return 1;
+	return 0;
+};
+
+var buildHtmlFromBlocks = function(sourceBlocks) {
+	var tempArray = sourceBlocks.slice();
+
+	tempArray.sort(function(a, b) {
+		var lineA = (a.lineIndex !== undefined && a.lineIndex !== null) ? a.lineIndex : getBlockLineIndex(a);
+		var lineB = (b.lineIndex !== undefined && b.lineIndex !== null) ? b.lineIndex : getBlockLineIndex(b);
+
+		return lineA - lineB || a.x - b.x || a.index - b.index;
+	});
+
+	var html = '';
+
+	for (i = 0; i < tempArray.length; i++)
+		html += ' ' + tempArray[i].html;
+
+	return html;
+};
 
 // read from save file or create new
 if (localStorage.progress !== undefined) {
@@ -106,20 +383,23 @@ var init = function() {
 		'text' : { src: tagText, html: 'Lorem ipsum' },
 	};
 
-	// set up platforms
-	for (i = 0; i < 5; i++) {
-		platforms[i] = {
-			x: (canvas.width - canvas.width/1.4)/2,
-			y: canvas.height - 102 - 102*i,
-			width: canvas.width/1.4,
-			height: 15,
-			draw: function() {
-				ctx.drawImage(plankImage, this.x, this.y, this.width, this.height);
-			}
+	// set up code lines
+	codeLines = new Array;
+	for (i = 0; i < Math.floor((canvas.height - codeLineTop - 1) / codeLineHeight) + 1; i++) {
+		codeLines[i] = {
+			index: i,
+			number: i + 1,
+			x: 0,
+			y: getLineTop(i),
+			width: canvas.width,
+			height: codeLineHeight
 		};
 	}
+	codeGridBottom = getGridBottom();
+	baselineY = codeGridBottom;
 	
 	// create first level
+	syncPlayerToLine(codeLines.length - 1);
 	levelUp(progress);
 	
 	// high score?
@@ -167,15 +447,23 @@ var update = function() {
 	$('#time').html(timer(time)); // graphics.js
 	
 	// block loop
+	var pickupCandidate = player.carrying == -1 && player.pickup && player.reverse ? getPickupCandidate() : null;
 	for (i = 0; i < blocks.length; i++) {
 		blocks[i].update();
 		
 		// player is attempting to pick up a block
 		if (player.carrying == -1 && player.pickup && player.reverse) {
-			// compare x/y values
-			if (player.x + player.width >= blocks[i].x && player.x <= blocks[i].x + blocks[i].width && player.y + player.height + collisionPadding >= blocks[i].y && player.y + player.height - collisionPadding <= blocks[i].y + blocks[i].height) {
+			if (pickupCandidate && pickupCandidate.index === i) {
 				// tie index to player
 				player.carrying = i;
+				blocks[i].pickupLineIndex = (blocks[i].lineIndex !== undefined && blocks[i].lineIndex !== null) ? blocks[i].lineIndex : getBlockLineIndex(blocks[i]);
+				blocks[i].pickupColumnIndex = Math.round((blocks[i].x - codeLineBlockLeft) / blockWidth);
+				blocks[i].pickupPlayerLineIndex = player.lineIndex;
+				blocks[i].pickupRelativeLineOffset = blocks[i].pickupLineIndex - blocks[i].pickupPlayerLineIndex;
+	blocks[i].pickupPlayerX = Math.round(player.x);
+	blocks[i].pickupOffsetFromPlayer = Math.round(blocks[i].x - player.x);
+	blocks[i].pickupX = blocks[i].x;
+	blocks[i].pickupY = blocks[i].y;
 				
 				sfxDrop.play();
 			}
@@ -184,11 +472,14 @@ var update = function() {
 		// ignore the block being held
 		if (player.carrying != i) {
 			// look for collisions with player
-			if (!(keys.down in keysDown) && player.velocityUp <= 0) {
+			if (player.velocityUp <= 0) {
 				// compare x/y values
 				if (player.y + player.height > blocks[i].y && player.y + player.height < blocks[i].y + blocks[i].height && player.y + player.height - player.velocityDown - collisionPadding < blocks[i].y && player.x + player.width > blocks[i].x + collisionPadding && player.x < blocks[i].x + blocks[i].width - collisionPadding) {
 					// stop player
 					player.y = blocks[i].y - player.height;
+					player.feetY = blocks[i].y;
+					player.targetFeetY = player.feetY;
+					player.lineIndex = (blocks[i].lineIndex !== undefined && blocks[i].lineIndex !== null) ? blocks[i].lineIndex : getBlockLineIndex(blocks[i]);
 					
 					// reset jumping/falling
 					player.jumping = false;
@@ -203,35 +494,36 @@ var update = function() {
 					// compare x/y values
 					if (blocks[i].y + blocks[i].height > blocks[t].y && blocks[i].y + blocks[i].height < blocks[t].y + blocks[t].height && blocks[i].y + blocks[i].height - blocks[i].velocityDown - collisionPadding < blocks[t].y && blocks[i].x + blocks[i].width > blocks[t].x + collisionPadding && blocks[i].x < blocks[t].x + blocks[t].width - collisionPadding) {
 						// stop block from falling
-						blocks[i].y = blocks[t].y - blocks[i].height;
-						blocks[i].velocityDown = 0;
+						syncBlockToLine(blocks[i], ((blocks[t].lineIndex !== undefined && blocks[t].lineIndex !== null) ? blocks[t].lineIndex : getBlockLineIndex(blocks[t])) - 1);
 						
-						// platforms don't matter at this point
+						// the row support is already handled by the line grid
 						break;
 					}
 				}
 			}
 		
-			// look for collision with platforms
-			for (p = 0; p < platforms.length; p++) {
+			// look for collision with code lines
+			for (p = 0; p < codeLines.length; p++) {
 				// compare x/y values
-				if (blocks[i].y + blocks[i].height > platforms[p].y && blocks[i].y + blocks[i].height < platforms[p].y + platforms[p].height && blocks[i].y + blocks[i].height - blocks[i].velocityDown - collisionPadding < platforms[p].y && blocks[i].x + blocks[i].width > platforms[p].x + collisionPadding && blocks[i].x < platforms[p].x + platforms[p].width - collisionPadding) {
+				if (blocks[i].y + blocks[i].height > codeLines[p].y && blocks[i].y + blocks[i].height < codeLines[p].y + codeLines[p].height && blocks[i].y + blocks[i].height - blocks[i].velocityDown - collisionPadding < codeLines[p].y && blocks[i].x + blocks[i].width > codeLines[p].x + collisionPadding && blocks[i].x < codeLines[p].x + codeLines[p].width - collisionPadding) {
 					// stop block from falling
-					blocks[i].y = platforms[p].y - blocks[i].height;
-					blocks[i].velocityDown = 0;
+					syncBlockToLine(blocks[i], p);
 				}
 			}
 		}
 	}
 	
-	// platform loop
-	for (i = 0; i < platforms.length; i++) {
+	// code line loop
+	for (i = 0; i < codeLines.length; i++) {
 		// look for collisions with player
-		if (!(keys.down in keysDown) && player.velocityUp <= 0) {
+		if (player.velocityUp <= 0) {
 			// compare x/y values
-			if (player.y + player.height > platforms[i].y && player.y + player.height < platforms[i].y + platforms[i].height && player.y + player.height - player.velocityDown - collisionPadding < platforms[i].y && player.x + player.width > platforms[i].x + collisionPadding && player.x < platforms[i].x + platforms[i].width - collisionPadding) {
+			if (player.y + player.height > codeLines[i].y && player.y + player.height < codeLines[i].y + codeLines[i].height && player.y + player.height - player.velocityDown - collisionPadding < codeLines[i].y && player.x + player.width > codeLines[i].x + collisionPadding && player.x < codeLines[i].x + codeLines[i].width - collisionPadding) {
 				// stop player
-				player.y = platforms[i].y - player.height;
+				player.y = codeLines[i].y - player.height;
+				player.feetY = codeLines[i].y;
+				player.targetFeetY = player.feetY;
+				player.lineIndex = i;
 				
 				// reset jumping/falling
 				player.jumping = false;
@@ -239,6 +531,12 @@ var update = function() {
 			}
         }
 	}
+
+	activeLineIndex = player.lineIndex;
+	activeDisplayLineNumber = activeLineIndex + 1;
+	highlightedMarginIndex = activeLineIndex;
+	if (player.lineIndex !== activeLineIndex || highlightedMarginIndex !== activeLineIndex || activeDisplayLineNumber !== activeLineIndex + 1)
+		console.warn('line sync mismatch', player.lineIndex, activeLineIndex, activeDisplayLineNumber, highlightedMarginIndex);
 };
 
 // create a new level
@@ -452,20 +750,8 @@ var levelUp = function(x) {
 
 // validate placement of html blocks
 var validate = function(x) {
-	// make a copy of the blocks array
-	var tempArray = blocks.slice();
+	var html = buildHtmlFromBlocks(blocks);
 	
-	// sort by x/y coordinates
-	tempArray.sort(function(a, b) {
-		return  a.y - b.y || a.x - b.x;
-	});
-	
-	// start html output
-	var html = '';
-	
-	for (i = 0; i < tempArray.length; i++)
-		html += ' ' + tempArray[i].html;
-		
 	// return html output for level building purposes
 	if (x != 0)
 		return html;
@@ -557,19 +843,7 @@ $(function() {
 	
 	// download current website
 	$('#download').click(function() {
-		// make a copy of the blocks array
-		var tempArray = blocks.slice();
-		
-		// sort by x/y coordinates
-		tempArray.sort(function(a, b) {
-			return  a.y - b.y || a.x - b.x;
-		});
-		
-		// start html output
-		var html = '';
-		
-		for (i = 0; i < tempArray.length; i++)
-			html += ' ' + tempArray[i].html;
+		var html = buildHtmlFromBlocks(blocks);
 		
 		var blob = new Blob([html.substr(1)], { type: 'text/html;charset=utf-8' });
 		var url = URL.createObjectURL(blob);
