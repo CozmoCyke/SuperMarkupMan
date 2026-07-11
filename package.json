@@ -1,0 +1,9 @@
+{
+  "name": "super-markup-man-offline",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Offline mirror of Super Markup Man.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

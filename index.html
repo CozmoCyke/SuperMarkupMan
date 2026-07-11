@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>Super Markup Man: Learn HTML the Fun and Easy Way!</title>
+	
+	<meta charset="UTF-8" />
+	<meta name="description" content="Run, jump, and practice HTML in this free HTML5 game that teaches you how to correctly use HTML tags. It's fun and educational!" />
+	<meta name="keywords" content="xhtml syntax, html5 games, web games, educational games, html markup, 2d platformers" />
+	<meta name="robots" content="noindex" />
+
+	<style type="text/css">
+		@import 'styles.css';
+	</style>
+	
+	<script src="vendor/jquery.min.js"></script>
+	
+	<script src="scripts/graphics.js"></script>
+	<script src="scripts/player.js"></script>
+	<script src="scripts/block.js"></script>
+	<script src="scripts/game.js"></script>
+</head>
+
+<body>
+	<div id="wrapper">
+		<div id="content">
+			<div id="title">
+				Super Markup Man!
+				<span>Learn HTML the Fun and Easy Way</span>
+			</div>
+		
+			<div id="gameholder">
+				<div id="left"></div>
+				<div id="right"></div>
+				
+				<canvas id="game">
+					<center>
+						<h1>Sorry, your browser doesn't support HTML5.</h1>
+						<h1>:(</h1>
+					</center>
+				</canvas>
+				
+				<div id="left-label">Target Website</div>
+				<div id="right-label">Current Website</div>
+				
+				<img src="images/download.png" title="Download current website" id="download" />
+				
+				<div id="level"><img src="images/loading.gif" alt="Loading..." /></div>
+				
+				<div id="times">
+					Time: <span id="time"></span>
+					<span id="best"></span>
+				</div>
+			
+				<div id="controls">
+					<input type="button" value="Reset" id="reset" />
+					<input type="button" value="Help" id="help" />
+				</div>
+			
+				<div id="check"><img src="images/check.png" /></div>
+			</div>
+			
+			<div id="info">
+				made by <a href="#" onclick="return false;">roppy chop studios</a>. see the new version on <a href="#" onclick="return false;">steam</a>!
+			</div>
+		</div>
+			
+		<div id="overlay">
+			<div id="window-help" class="window">
+				<div class="close">X</div>
+				
+				<h2><em>How to Play Super Markup Man:</em></h2>
+				<div id="table1">
+					<div><p>This is the website you are trying to build.</p></div>
+					<div><img src="images/markup-man.png" /><br/>This is you.</div>
+					<div><p>This is the website that you are currently building.</p></div>
+				</div>
+				
+				<br clear="all" />
+				
+				<h4>"Program" them to look the same by moving the HTML tags!<br/>There are 30 levels total, and your progress is auto-saved if you leave early.</h4>
+				
+				<div id="table2">
+					<div><p style="margin-top:10px">Press <strong>UP</strong> to jump. Hold <strong>UP</strong> to jump higher. <br/> Press <strong>DOWN</strong> to fall through platforms. <br/> Use <strong>SPACEBAR</strong> to pick up and drop HTML tags.</p></div>
+					<div style="text-align:right"><img src="images/keys.png" /></div>
+				</div>
+				
+				<br clear="all" />
+				
+				<p>
+					<u>Some helpful tips</u>: You can place HTML tags wherever you want, even on different lines with lots of space in between them. However, the "code" reads them top-to-bottom, left-to-right, just like a book. So in looking at the following tags, the <img src="images/tag-br.png" /> tag would actually be read first, because it is above the others: <img src="images/tag-samples.png" style="vertical-align:top; padding:5px" /> 
+					<br/>
+					Those tags are all "self closing" tags. Other tags have an opening <em>and</em> a closing. For instance, the <img src="images/tag-strong.png" /> tag should always have a closing <img src="images/tag-strong-close.png" /> tag. If you use several tags at once, they need to close in the opposite order that they were opened. Example: <img src="images/tag-a.png" /> <img src="images/tag-strong.png" /> some text <img src="images/tag-strong-close.png" /> <img src="images/tag-a-close.png" />. If you have them out of order, it might <em>look</em> right, but we want to emphasize using correct, valid code. Good luck!
+				</p>
+			</div>
+			
+			<div id="window-reset" class="window">
+				<div class="close">X</div>
+				
+				<h2><em>Wait!</em></h2>
+				
+				Resetting the game will send you back to Level 1. If you haven't beaten the last level yet, you will lose your current time/score. Are you sure you want to continue?
+				
+				<p>
+					<a href="#" id="yes">Yes, do it!</a>
+					&nbsp; &nbsp;
+					<a href="#" id="no">No, I'm sorry.</a>
+				</p>
+			</div>
+			
+			<div id="window-done" class="window">
+				<div class="close">X</div>
+				
+				<h2><em>Congratulations! You passed!</em></h2>
+				
+				<h4>Final Time &nbsp; ~ &nbsp; <strong id="finaltime"></strong></h4>
+				
+				Yep, you're really done. This last level is just for practice. But now that you are an HTML master, you can play around with all of the tags for as long as you like or reset the game and try again for a better time.
+				
+				<p>Oh, and did you know that there is a full-fledged remake of <em>Super Markup Man</em> available that not only teaches more HTML tags but also covers the basics of CSS? It even has a local co-op mode. Check it out on <a href="#" onclick="return false;">Steam</a>!</p>
+				
+				<p><em>Roppy Chop Studios</em></p>
+			</div>
+		</div>	
+	</div>
+	
+	<audio id="sfxDrop" preload="auto">
+		<source src="sounds/drop.mp3" type="audio/mpeg" />
+		<source src="sounds/drop.wav" type="audio/wav" />
+	</audio>
+	<audio id="sfxDone" preload="auto">
+		<source src="sounds/done.mp3" type="audio/mpeg" />
+		<source src="sounds/done.wav" type="audio/wav" />
+	</audio>
+	<audio id="sfxNext" preload="auto">
+		<source src="sounds/next.mp3" type="audio/mpeg" />
+		<source src="sounds/next.wav" type="audio/wav" />
+	</audio>
+	
+</body>
+</html>
