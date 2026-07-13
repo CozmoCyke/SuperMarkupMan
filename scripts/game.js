@@ -17,8 +17,19 @@ var codeLineTop = 36;
 var codeLineNumberWidth = 16;
 var codeLineTextLeft = 8;
 var codeLineBlockLeft = 30;
+var rightGutterWidth = codeLineBlockLeft;
 var codeGridBottom = 0;
 var baselineY = 0;
+var DISTRIBUTOR_CAPACITY = 6;
+var distributorsByLine = new Array;
+var gridOriginX = codeLineBlockLeft;
+var gridOriginY = codeLineTop - blockHeight;
+var gridCellWidth = blockWidth;
+var gridCellHeight = blockHeight;
+var gridColumnCount = 0;
+var gridLineCount = 0;
+var DROP_SNAP_RADIUS = Math.round(gridCellWidth * 0.6);
+var HORIZONTAL_SNAP_RADIUS = gridCellWidth;
 var activeLineIndex = 0;
 var activeDisplayLineNumber = 1;
 var highlightedMarginIndex = 0;
@@ -47,7 +58,7 @@ var getPlayAreaBounds = function() {
 	return {
 		left: codeLineBlockLeft,
 		top: codeLineTop - blockHeight,
-		right: canvas.width - codeLineBlockLeft,
+		right: canvas.width - rightGutterWidth,
 		bottom: baselineY
 	};
 };
@@ -57,6 +68,160 @@ var getPlayerActiveZone = function() {
 		top: player.feetY - (activeZoneLineCount * codeLineHeight),
 		bottom: player.feetY,
 		height: activeZoneLineCount * codeLineHeight
+	};
+};
+
+var syncGridMetrics = function() {
+	gridOriginX = codeLineBlockLeft;
+	gridOriginY = codeLineTop - blockHeight;
+	gridCellWidth = blockWidth;
+	gridCellHeight = blockHeight;
+	gridLineCount = codeLines.length;
+	var playAreaBounds = getPlayAreaBounds();
+	var playableWidth = playAreaBounds.right - playAreaBounds.left;
+	gridColumnCount = Math.max(1, Math.floor(playableWidth / gridCellWidth));
+};
+
+var cellToPosition = function(lineIndex, columnIndex) {
+	var clampedLineIndex = clamp(lineIndex, 0, Math.max(0, gridLineCount - 1));
+	var clampedColumnIndex = clamp(columnIndex, 0, Math.max(0, gridColumnCount - 1));
+
+	return {
+		lineIndex: clampedLineIndex,
+		columnIndex: clampedColumnIndex,
+		x: gridOriginX + (clampedColumnIndex * gridCellWidth),
+		y: gridOriginY + (clampedLineIndex * gridCellHeight)
+	};
+};
+
+var positionToNearestCell = function(x, y) {
+	var lineIndex = clamp(Math.round((y - gridOriginY) / gridCellHeight), 0, Math.max(0, gridLineCount - 1));
+	var columnIndex = clamp(Math.round((x - gridOriginX) / gridCellWidth), 0, Math.max(0, gridColumnCount - 1));
+
+	return cellToPosition(lineIndex, columnIndex);
+};
+
+var getDropSnapCell = function(block, rawX, rawY, pickupLineIndex, pickupColumnIndex) {
+	var rawCell = positionToNearestCell(rawX, rawY);
+	var rawCenterX = rawX + (block.width / 2);
+	var preferredColumnIndex = player.facingDirection === 'left' ? rawCell.columnIndex - 1 : rawCell.columnIndex + 1;
+	var fallbackColumnIndex = player.facingDirection === 'left' ? rawCell.columnIndex + 1 : rawCell.columnIndex - 1;
+	var candidateColumns = [rawCell.columnIndex, preferredColumnIndex, fallbackColumnIndex];
+	var bestCandidate = null;
+
+	for (var i = 0; i < candidateColumns.length; i++) {
+		var candidateColumnIndex = candidateColumns[i];
+		var candidateLineIndex = rawCell.lineIndex;
+
+		if (candidateColumnIndex < 0 || candidateColumnIndex >= gridColumnCount)
+			continue;
+
+		var candidateCell = cellToPosition(candidateLineIndex, candidateColumnIndex);
+		var candidateCenterX = candidateCell.x + (gridCellWidth / 2);
+		var distance = Math.abs(candidateCenterX - rawCenterX);
+
+		if (distance > HORIZONTAL_SNAP_RADIUS)
+			continue;
+		if (isGridCellOccupied(candidateLineIndex, candidateColumnIndex, block.index))
+			continue;
+
+		var priority = 1;
+		if (candidateColumnIndex === rawCell.columnIndex)
+			priority = 0;
+		else if (candidateColumnIndex === preferredColumnIndex)
+			priority = 1;
+		else
+			priority = 2;
+
+		var candidateScore = {
+			lineIndex: candidateLineIndex,
+			columnIndex: candidateColumnIndex,
+			x: candidateCell.x,
+			y: candidateCell.y,
+			priority: priority,
+			distance: distance
+		};
+
+		if (!bestCandidate || candidateScore.priority < bestCandidate.priority || (candidateScore.priority === bestCandidate.priority && candidateScore.distance < bestCandidate.distance)) {
+			bestCandidate = candidateScore;
+		}
+	}
+
+	return bestCandidate;
+};
+
+var getGridCellRect = function(lineIndex, columnIndex) {
+	var cell = cellToPosition(lineIndex, columnIndex);
+	return {
+		x: cell.x,
+		y: cell.y,
+		width: gridCellWidth,
+		height: gridCellHeight
+	};
+};
+
+var isGridCellOccupied = function(lineIndex, columnIndex, ignoreBlockIndex) {
+	var cellRect = getGridCellRect(lineIndex, columnIndex);
+
+	for (var i = 0; i < blocks.length; i++) {
+		if (i === ignoreBlockIndex)
+			continue;
+		if (blocks[i].storageState === 'distributor')
+			continue;
+		if (rectanglesOverlap(cellRect, blocks[i])) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+var getNearestFreeGridCell = function(x, y, ignoreBlockIndex) {
+	var targetCell = positionToNearestCell(x, y);
+	var bestCell = targetCell;
+	var bestDistance = Infinity;
+	var bestOccupied = true;
+
+	for (var lineIndex = 0; lineIndex < gridLineCount; lineIndex++) {
+		for (var columnIndex = 0; columnIndex < gridColumnCount; columnIndex++) {
+			var cell = cellToPosition(lineIndex, columnIndex);
+			var distance = Math.abs(cell.lineIndex - targetCell.lineIndex) + Math.abs(cell.columnIndex - targetCell.columnIndex);
+			var occupied = isGridCellOccupied(lineIndex, columnIndex, ignoreBlockIndex);
+
+			if (occupied && !bestOccupied)
+				continue;
+			if (!occupied && bestOccupied) {
+				bestCell = cell;
+				bestDistance = distance;
+				bestOccupied = false;
+				continue;
+			}
+			if (occupied === bestOccupied && distance < bestDistance) {
+				bestCell = cell;
+				bestDistance = distance;
+			}
+		}
+	}
+
+	return {
+		lineIndex: bestCell.lineIndex,
+		columnIndex: bestCell.columnIndex,
+		x: bestCell.x,
+		y: bestCell.y,
+		valid: !bestOccupied,
+		reason: bestOccupied ? 'occupied' : ''
+	};
+};
+
+var getDropPreviewCell = function(block) {
+	var dropPreviewRect = getBlockDropTarget(block);
+	return {
+		lineIndex: dropPreviewRect.cellLineIndex,
+		columnIndex: dropPreviewRect.cellColumnIndex,
+		x: dropPreviewRect.cellX,
+		y: dropPreviewRect.cellY,
+		valid: dropPreviewRect.valid,
+		reason: dropPreviewRect.reason
 	};
 };
 
@@ -71,18 +236,124 @@ var getHeldBlock = function() {
 	return player.carrying != -1 ? blocks[player.carrying] : null;
 };
 
-var getPickupCandidate = function() {
+var isPlayerInLeftGutter = function() {
+	return player.x < codeLineBlockLeft;
+};
+
+var syncDistributorBlockLayout = function(lineIndex) {
+	if (!distributorsByLine[lineIndex])
+		return;
+
+	var stack = distributorsByLine[lineIndex];
+	var distributorMiniWidth = 20;
+	var distributorMiniHeight = 12;
+	var distributorStep = 3;
+	var distributorLeft = 2;
+	var distributorTop = getLineTop(lineIndex) + Math.round((codeLineHeight - distributorMiniHeight) / 2);
+
+	for (var i = 0; i < stack.length; i++) {
+		var block = stack[i];
+		block.storageState = 'distributor';
+		block.distributorLineIndex = lineIndex;
+		block.distributorSlotIndex = i;
+		block.lineIndex = null;
+		block.velocityDown = 0;
+		block.dropSnapActive = false;
+		block.dropSnapDelayFrames = 0;
+		block.dropSnapFrames = 0;
+		block.dropSnapProgress = 0;
+		block.x = distributorLeft + (i * distributorStep);
+		block.y = distributorTop;
+		block.width = distributorMiniWidth;
+		block.height = distributorMiniHeight;
+	}
+};
+
+var syncDistributorStorage = function() {
+	distributorsByLine = new Array(codeLines.length);
+
+	for (var lineIndex = 0; lineIndex < codeLines.length; lineIndex++)
+		distributorsByLine[lineIndex] = new Array;
+};
+
+var storeHeldBlockInDistributor = function(lineIndex) {
+	var heldBlock = getHeldBlock();
+	if (!heldBlock || !distributorsByLine[lineIndex])
+		return false;
+	if (distributorsByLine[lineIndex].length >= DISTRIBUTOR_CAPACITY)
+		return false;
+
+	distributorsByLine[lineIndex].push(heldBlock);
+	syncDistributorBlockLayout(lineIndex);
+	heldBlock.storageState = 'distributor';
+	heldBlock.distributorLineIndex = lineIndex;
+	heldBlock.distributorSlotIndex = distributorsByLine[lineIndex].length - 1;
+	heldBlock.lineIndex = null;
+	heldBlock.velocityDown = 0;
+	heldBlock.dropSnapActive = false;
+	heldBlock.dropSnapDelayFrames = 0;
+	heldBlock.dropSnapFrames = 0;
+	heldBlock.dropSnapProgress = 0;
+	heldBlock.pickupLineIndex = null;
+	heldBlock.pickupColumnIndex = null;
+	heldBlock.pickupPlayerLineIndex = null;
+	heldBlock.pickupRelativeLineOffset = null;
+	heldBlock.pickupPlayerX = null;
+	heldBlock.pickupOffsetFromPlayer = null;
+	heldBlock.pickupX = null;
+	heldBlock.pickupY = null;
+	return true;
+};
+
+var takeBlockFromDistributor = function(lineIndex) {
+	if (!distributorsByLine[lineIndex] || !distributorsByLine[lineIndex].length)
+		return null;
+
+	var block = distributorsByLine[lineIndex].pop();
+	block.storageState = 'held';
+	block.distributorLineIndex = null;
+	block.distributorSlotIndex = null;
+	block.lineIndex = null;
+	block.width = blockWidth;
+	block.height = blockHeight;
+	block.dropSnapActive = false;
+	block.dropSnapDelayFrames = 0;
+	block.dropSnapFrames = 0;
+	block.dropSnapProgress = 0;
+	syncDistributorBlockLayout(lineIndex);
+
+	return block;
+};
+
+var getFacingInteractionTarget = function() {
+	if (isPlayerInLeftGutter() && player.facingDirection === 'left') {
+		var distributorStack = distributorsByLine[player.lineIndex] || [];
+		if (distributorStack.length) {
+			return {
+				type: 'leftDistributor',
+				lineIndex: player.lineIndex,
+				block: distributorStack[distributorStack.length - 1]
+			};
+		}
+	}
+
 	var candidate = null;
 	var bestDistance = Infinity;
 	var playerCenterX = player.x + player.width / 2;
 
 	for (var i = 0; i < blocks.length; i++) {
 		var block = blocks[i];
+		if (block.storageState === 'distributor')
+			continue;
 		var blockLineIndex = (block.lineIndex !== undefined && block.lineIndex !== null) ? block.lineIndex : getBlockLineIndex(block);
+		var blockCenterX = block.x + block.width / 2;
+		var isInFront = player.facingDirection === 'left' ? blockCenterX <= playerCenterX : blockCenterX >= playerCenterX;
 
 		if (block.index === player.carrying)
 			continue;
 		if (blockLineIndex !== player.lineIndex)
+			continue;
+		if (!isInFront)
 			continue;
 		if (!(player.x + player.width >= block.x && player.x <= block.x + block.width))
 			continue;
@@ -94,16 +365,28 @@ var getPickupCandidate = function() {
 		}
 	}
 
-	return candidate;
+	return candidate ? {
+		type: 'codeBlock',
+		index: candidate.index,
+		block: candidate
+	} : null;
+};
+
+var getPickupCandidate = function() {
+	return getFacingInteractionTarget();
 };
 
 var validateBlockPlacement = function(block, targetX, targetY, targetLineIndex) {
+	var heldBlock = getHeldBlock();
 	var pickupLineIndex = (block.pickupLineIndex !== undefined && block.pickupLineIndex !== null) ? block.pickupLineIndex : getBlockLineIndex(block);
 	var pickupPlayerLineIndex = (block.pickupPlayerLineIndex !== undefined && block.pickupPlayerLineIndex !== null) ? block.pickupPlayerLineIndex : player.lineIndex;
 	var pickupRelativeLineOffset = (block.pickupRelativeLineOffset !== undefined && block.pickupRelativeLineOffset !== null) ? block.pickupRelativeLineOffset : (pickupLineIndex - pickupPlayerLineIndex);
 	var resolvedLineIndex = (targetLineIndex !== undefined && targetLineIndex !== null) ? targetLineIndex : (player.lineIndex + pickupRelativeLineOffset);
-	var resolvedX = (targetX !== undefined && targetX !== null) ? targetX : (Math.round(player.x) + block.pickupOffsetFromPlayer);
+	var resolvedX = (targetX !== undefined && targetX !== null) ? targetX : Math.round(block.x);
 	var resolvedY = (targetY !== undefined && targetY !== null) ? targetY : getBlockDepositTop(resolvedLineIndex);
+	var targetCell = positionToNearestCell(resolvedX, resolvedY);
+	var placementCell = targetCell;
+	var snapCell = getDropSnapCell(block, resolvedX, resolvedY, pickupLineIndex, (block.pickupColumnIndex !== undefined && block.pickupColumnIndex !== null) ? block.pickupColumnIndex : null);
 	var targetRect = {
 		x: resolvedX,
 		y: resolvedY,
@@ -118,20 +401,43 @@ var validateBlockPlacement = function(block, targetX, targetY, targetLineIndex) 
 		valid = false;
 		reason = 'out_of_bounds';
 	}
-	else if (targetRect.x < playArea.left || targetRect.y < playArea.top || targetRect.x + targetRect.width > playArea.right || targetRect.y + targetRect.height > playArea.bottom) {
+	else if (!snapCell) {
+		valid = false;
+		reason = 'occupied';
+	}
+	else {
+		placementCell = snapCell;
+		resolvedX = snapCell.x;
+		resolvedY = snapCell.y;
+		targetRect = {
+			x: resolvedX,
+			y: resolvedY,
+			width: block.width,
+			height: block.height
+		};
+
+		if (targetRect.x < playArea.left || targetRect.y < playArea.top || targetRect.x + targetRect.width > playArea.right || targetRect.y + targetRect.height > playArea.bottom) {
+			valid = false;
+			reason = 'out_of_bounds';
+		}
+	}
+	if (valid && (targetRect.x < playArea.left || targetRect.y < playArea.top || targetRect.x + targetRect.width > playArea.right || targetRect.y + targetRect.height > playArea.bottom)) {
 		valid = false;
 		reason = 'out_of_bounds';
 	}
-	else {
+	else if (valid) {
 		for (var j = 0; j < blocks.length; j++) {
-			if (j === block.index || j === player.carrying)
+			var otherBlock = blocks[j];
+			if (otherBlock === block || otherBlock === heldBlock)
+				continue;
+			if (otherBlock.storageState === 'distributor')
 				continue;
 
 			var blockRect = {
-				x: blocks[j].x,
-				y: blocks[j].y,
-				width: blocks[j].width,
-				height: blocks[j].height
+				x: otherBlock.x,
+				y: otherBlock.y,
+				width: otherBlock.width,
+				height: otherBlock.height
 			};
 
 			if (rectanglesOverlap(targetRect, blockRect)) {
@@ -143,10 +449,14 @@ var validateBlockPlacement = function(block, targetX, targetY, targetLineIndex) 
 	}
 
 	return {
-		lineIndex: resolvedLineIndex,
-		columnIndex: Math.round((resolvedX - codeLineBlockLeft) / blockWidth),
+		lineIndex: placementCell.lineIndex,
+		columnIndex: placementCell.columnIndex,
 		x: resolvedX,
 		y: resolvedY,
+		cellX: placementCell.x,
+		cellY: placementCell.y,
+		cellLineIndex: placementCell.lineIndex,
+		cellColumnIndex: placementCell.columnIndex,
 		valid: valid,
 		reason: reason
 	};
@@ -181,6 +491,8 @@ var assertNoBlockOverlap = function() {
 			var blockB = blocks[b];
 			if (blockA.lineIndex === null || blockA.lineIndex === undefined || blockB.lineIndex === null || blockB.lineIndex === undefined)
 				continue;
+			if (blockA.storageState === 'distributor' || blockB.storageState === 'distributor')
+				continue;
 			if (rectanglesOverlap(blockA, blockB)) {
 				console.warn('Block overlap detected after deposit', {
 					overlapA: a,
@@ -199,6 +511,31 @@ var finalizeHeldBlockDrop = function() {
 	if (!heldBlock)
 		return;
 
+	if (isPlayerInLeftGutter() && player.facingDirection === 'left') {
+		if (storeHeldBlockInDistributor(player.lineIndex)) {
+			heldBlock.storageState = 'distributor';
+			heldBlock.distributorLineIndex = player.lineIndex;
+			heldBlock.distributorSlotIndex = distributorsByLine[player.lineIndex].length - 1;
+			heldBlock.lineIndex = null;
+			heldBlock.velocityDown = 0;
+			heldBlock.pickupLineIndex = null;
+			heldBlock.pickupColumnIndex = null;
+			heldBlock.pickupPlayerLineIndex = null;
+			heldBlock.pickupRelativeLineOffset = null;
+			heldBlock.pickupPlayerX = null;
+			heldBlock.pickupOffsetFromPlayer = null;
+			heldBlock.pickupX = null;
+			heldBlock.pickupY = null;
+			player.carrying = -1;
+			player.drop = false;
+			validate(0); // game.js
+			return;
+		}
+
+		player.drop = false;
+		return;
+	}
+
 	var dropPreviewRect = getBlockDropTarget(heldBlock);
 
 	if (dropPreviewRect.valid) {
@@ -206,11 +543,18 @@ var finalizeHeldBlockDrop = function() {
 		heldBlock.lineIndex = dropPreviewRect.lineIndex;
 		heldBlock.x = placedBlockRect.x;
 		heldBlock.y = placedBlockRect.y;
+		heldBlock.dropSnapStartX = placedBlockRect.x;
+		heldBlock.dropSnapStartY = placedBlockRect.y;
+		heldBlock.dropSnapTargetX = dropPreviewRect.cellX;
+		heldBlock.dropSnapTargetY = dropPreviewRect.cellY;
+		heldBlock.dropSnapDelayFrames = 6;
+		heldBlock.dropSnapFrames = 8;
+		heldBlock.dropSnapProgress = 0;
+		heldBlock.dropSnapActive = true;
 	}
 	else {
-		heldBlock.lineIndex = heldBlock.pickupLineIndex;
-		heldBlock.x = heldBlock.pickupX;
-		heldBlock.y = heldBlock.pickupY;
+		player.drop = false;
+		return;
 	}
 
 	heldBlock.velocityDown = 0;
@@ -285,9 +629,49 @@ var buildHtmlFromBlocks = function(sourceBlocks) {
 	var html = '';
 
 	for (i = 0; i < tempArray.length; i++)
-		html += ' ' + tempArray[i].html;
+		if (tempArray[i].storageState !== 'distributor')
+			html += ' ' + tempArray[i].html;
 
 	return html;
+};
+
+var escapeHtml = function(value) {
+	return String(value)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+};
+
+var buildDistributorPanelHtml = function() {
+	if (!distributorsByLine || !distributorsByLine.length)
+		return '';
+
+	var html = '<div style="margin-top:16px; padding-top:10px; border-top:1px dashed rgba(110, 120, 130, 0.35);">';
+	html += '<div style="font:700 12px monospace; letter-spacing:0.04em; color:#5f6974; margin-bottom:8px;">BLOCK DISTRIBUTORS</div>';
+
+	for (var lineIndex = 0; lineIndex < distributorsByLine.length; lineIndex++) {
+		var stack = distributorsByLine[lineIndex] || [];
+		html += '<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">';
+		html += '<div style="width:18px; text-align:right; font:700 11px monospace; color:#6d7680;">' + (lineIndex + 1) + '</div>';
+		html += '<div style="display:flex; gap:4px; flex-wrap:nowrap;">';
+
+		for (var slotIndex = 0; slotIndex < stack.length; slotIndex++) {
+			var block = stack[slotIndex];
+			html += '<span style="display:inline-flex; align-items:center; justify-content:center; width:60px; height:33px; box-sizing:border-box; border:1px solid rgba(120,130,140,0.55); border-radius:3px; background:' + (slotIndex === stack.length - 1 ? 'rgba(244, 250, 244, 0.98)' : 'rgba(246, 246, 246, 0.96)') + '; color:#3b424a; font:600 10px/1 monospace; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding:0 4px;">' + escapeHtml(block.html) + '</span>';
+		}
+
+		html += '</div></div>';
+	}
+
+	html += '</div>';
+	return html;
+};
+
+var buildTargetWebsiteHtml = function() {
+	return '<div style="font:700 12px monospace; letter-spacing:0.04em; color:#5f6974; margin-bottom:8px;">TARGET WEBSITE</div>' +
+		'<div style="margin-bottom:12px;">' + level + '</div>' +
+		buildDistributorPanelHtml();
 };
 
 // read from save file or create new
@@ -397,6 +781,7 @@ var init = function() {
 	}
 	codeGridBottom = getGridBottom();
 	baselineY = codeGridBottom;
+	syncGridMetrics();
 	
 	// create first level
 	syncPlayerToLine(codeLines.length - 1);
@@ -449,11 +834,13 @@ var update = function() {
 	// block loop
 	var pickupCandidate = player.carrying == -1 && player.pickup && player.reverse ? getPickupCandidate() : null;
 	for (i = 0; i < blocks.length; i++) {
+		if (blocks[i].storageState === 'distributor')
+			continue;
 		blocks[i].update();
 		
 		// player is attempting to pick up a block
 		if (player.carrying == -1 && player.pickup && player.reverse) {
-			if (pickupCandidate && pickupCandidate.index === i) {
+			if (pickupCandidate && pickupCandidate.type === 'codeBlock' && pickupCandidate.index === i) {
 				// tie index to player
 				player.carrying = i;
 				blocks[i].pickupLineIndex = (blocks[i].lineIndex !== undefined && blocks[i].lineIndex !== null) ? blocks[i].lineIndex : getBlockLineIndex(blocks[i]);
@@ -490,7 +877,7 @@ var update = function() {
 			// look for collision with other blocks
 			for (t = 0; t < blocks.length; t++) {
 				// ignore self and carried block
-				if (t != i && t != player.carrying) {
+				if (t != i && t != player.carrying && blocks[t].storageState !== 'distributor') {
 					// compare x/y values
 					if (blocks[i].y + blocks[i].height > blocks[t].y && blocks[i].y + blocks[i].height < blocks[t].y + blocks[t].height && blocks[i].y + blocks[i].height - blocks[i].velocityDown - collisionPadding < blocks[t].y && blocks[i].x + blocks[i].width > blocks[t].x + collisionPadding && blocks[i].x < blocks[t].x + blocks[t].width - collisionPadding) {
 						// stop block from falling
@@ -532,11 +919,23 @@ var update = function() {
         }
 	}
 
-	activeLineIndex = player.lineIndex;
-	activeDisplayLineNumber = activeLineIndex + 1;
-	highlightedMarginIndex = activeLineIndex;
-	if (player.lineIndex !== activeLineIndex || highlightedMarginIndex !== activeLineIndex || activeDisplayLineNumber !== activeLineIndex + 1)
-		console.warn('line sync mismatch', player.lineIndex, activeLineIndex, activeDisplayLineNumber, highlightedMarginIndex);
+activeLineIndex = player.lineIndex;
+activeDisplayLineNumber = activeLineIndex + 1;
+highlightedMarginIndex = activeLineIndex;
+	console.log({
+		playerLineIndex: player.lineIndex,
+		activeLineIndex: activeLineIndex,
+		activeDisplayLineNumber: activeDisplayLineNumber,
+		highlightedMarginIndex: highlightedMarginIndex
+	});
+if (!Number.isInteger(player.lineIndex) || !Number.isInteger(activeLineIndex) || !Number.isInteger(activeDisplayLineNumber) || !Number.isInteger(highlightedMarginIndex) || player.lineIndex !== activeLineIndex || highlightedMarginIndex !== activeLineIndex || activeDisplayLineNumber !== activeLineIndex + 1) {
+		console.error('line sync mismatch', {
+			playerLineIndex: player.lineIndex,
+			activeLineIndex: activeLineIndex,
+			activeDisplayLineNumber: activeDisplayLineNumber,
+			highlightedMarginIndex: highlightedMarginIndex
+		});
+	}
 };
 
 // create a new level
@@ -563,6 +962,7 @@ var levelUp = function(x) {
 		blocks = new Array;
 		alt = new Array;
 		level = '';
+		syncDistributorStorage();
 	
 		// *******************
 		// LET'S MAKE A LEVEL!

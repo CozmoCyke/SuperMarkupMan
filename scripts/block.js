@@ -9,6 +9,17 @@ function createBlock(tag) {
 		html: tag.html,
 		label: tag.html,
 		lineIndex: null,
+		storageState: 'playArea',
+		distributorLineIndex: null,
+		distributorSlotIndex: null,
+		dropSnapActive: false,
+		dropSnapDelayFrames: 0,
+		dropSnapFrames: 0,
+		dropSnapProgress: 0,
+		dropSnapStartX: 0,
+		dropSnapStartY: 0,
+		dropSnapTargetX: 0,
+		dropSnapTargetY: 0,
 		// graphics
 		sprite: tag.src,
 		width: blockWidth,
@@ -18,8 +29,13 @@ function createBlock(tag) {
 		y: getLineTop(Math.floor(Math.random() * Math.max(1, codeLines.length))) - blockHeight,
 		velocityDown: 0,
 		update: function() {
+			if (this.storageState === 'distributor') {
+				return;
+			}
+
 			// player is carrying this block
 			if (player.carrying == this.index) {
+				this.storageState = 'held';
 				this.lineIndex = null;
 
 				// set x-axis according to player position
@@ -35,7 +51,29 @@ function createBlock(tag) {
 			}
 			// gravity affects it
 			else {
+				this.storageState = 'playArea';
 				this.heldVisualRect = null;
+
+				if (this.dropSnapDelayFrames > 0) {
+					this.dropSnapDelayFrames--;
+					this.x = this.dropSnapStartX;
+					this.y = this.dropSnapStartY;
+					this.velocityDown = 0;
+					return;
+				}
+
+				if (this.dropSnapActive) {
+					this.dropSnapProgress++;
+					var snapProgress = Math.min(1, this.dropSnapFrames ? (this.dropSnapProgress / this.dropSnapFrames) : 1);
+					this.x = this.dropSnapStartX + ((this.dropSnapTargetX - this.dropSnapStartX) * snapProgress);
+					this.y = this.dropSnapStartY + ((this.dropSnapTargetY - this.dropSnapStartY) * snapProgress);
+					this.velocityDown = 0;
+					if (snapProgress >= 1) {
+						this.dropSnapActive = false;
+						this.lineIndex = getBlockLineIndex(this);
+					}
+					return;
+				}
 
 				if (this.y + this.height < baselineY) {
 					this.velocityDown += gravitySpeed;
@@ -48,6 +86,9 @@ function createBlock(tag) {
 			}
 		},
 		draw: function() {
+			if (this.storageState === 'distributor')
+				return;
+
 			// keep the original sprite intact while giving every block the same hitbox and visual footprint
 			var heldVisualRect = this.heldVisualRect || {
 				x: this.x,

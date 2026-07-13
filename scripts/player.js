@@ -12,6 +12,7 @@ function createPlayer(w, h) {
 		feetY: canvas.height,
 		targetFeetY: canvas.height,
 		lineIndex: 0,
+		facingDirection: 'right',
 		prevX: 0,
 		frameX: 0,
 		frameY: 0,
@@ -28,13 +29,15 @@ function createPlayer(w, h) {
 		reverse: false,
 		drop: false,
 		carrying: -1,
+		interactionTarget: null,
 		update: function() {			
 			// record old position
 			this.prevX = this.x;
 			
 			// pick up
 			if (!this.pickup && this.x == this.prevX && keys.space in keysDown) {
-				if (this.carrying != -1 || getPickupCandidate()) {
+				var pickupCandidate = getPickupCandidate();
+				if (this.carrying != -1 || pickupCandidate) {
 					this.pickup = true;
 					this.frameX = 7;
 					this.velocity = 0;
@@ -42,6 +45,15 @@ function createPlayer(w, h) {
 					// mark as dropping so we don't pick it up again
 					if (this.carrying != -1)
 						this.drop = true;
+					else if (pickupCandidate && pickupCandidate.type === 'leftDistributor') {
+						var takenBlock = takeBlockFromDistributor(pickupCandidate.lineIndex);
+						if (takenBlock) {
+							this.carrying = takenBlock.index;
+							takenBlock.storageState = 'held';
+							takenBlock.distributorLineIndex = null;
+							takenBlock.distributorSlotIndex = null;
+						}
+					}
 				}
 			}
 			
@@ -86,6 +98,12 @@ function createPlayer(w, h) {
 				this.airTime = 0;
 			}
 			
+			// remember the last horizontal facing direction even when standing still
+			if ((keys.left in keysDown) && !(keys.right in keysDown))
+				this.facingDirection = 'left';
+			else if ((keys.right in keysDown) && !(keys.left in keysDown))
+				this.facingDirection = 'right';
+
 			// player presses left
 			if (this.x > 0 && keys.left in keysDown) { 
 				this.x -= this.speed * this.velocity;
