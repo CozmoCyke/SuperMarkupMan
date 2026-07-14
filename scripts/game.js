@@ -56,6 +56,17 @@ var getDisplayLineNumber = function(lineIndex) {
 	return clamp(codeLineCount - lineIndex, 1, codeLineCount);
 };
 
+var getDistributorZoneTop = function() {
+	var leftPanel = document.getElementById('left');
+	if (!canvas || !leftPanel || !leftPanel.getBoundingClientRect)
+		return codeLineTop;
+
+	var canvasRect = canvas.getBoundingClientRect();
+	var leftRect = leftPanel.getBoundingClientRect();
+
+	return Math.round(canvasRect.top + codeLineTop - leftRect.top - leftPanel.clientTop);
+};
+
 var getBlockDepositTop = function(lineIndex) {
 	return getLineTop(lineIndex) - blockHeight;
 };
@@ -653,24 +664,28 @@ var buildDistributorPanelHtml = function() {
 	if (!distributorsByLine || !distributorsByLine.length)
 		return '';
 
-	var html = '<div style="margin-top:16px; padding-top:10px; border-top:1px dashed rgba(110, 120, 130, 0.35);">';
-	html += '<div style="font:700 12px monospace; letter-spacing:0.04em; color:#5f6974; margin-bottom:8px;">BLOCK DISTRIBUTORS</div>';
+	var zoneTop = getDistributorZoneTop();
+	var zoneHeight = codeLineCount * codeLineHeight;
+	var html = '<div style="font:700 12px monospace; letter-spacing:0.04em; color:#5f6974; margin-bottom:8px;">BLOCK DISTRIBUTORS</div>';
+	html += '<div style="position:absolute; left:0; right:0; top:' + zoneTop + 'px; height:' + zoneHeight + 'px; pointer-events:none;">';
+	html += '<div style="position:relative; width:100%; height:100%;">';
 
 	for (var lineIndex = 0; lineIndex < distributorsByLine.length; lineIndex++) {
 		var stack = distributorsByLine[lineIndex] || [];
-		html += '<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">';
-		html += '<div style="width:18px; text-align:right; font:700 11px monospace; color:#6d7680;">' + getDisplayLineNumber(lineIndex) + '</div>';
-		html += '<div style="display:flex; gap:4px; flex-wrap:nowrap;">';
+		var rowTop = lineIndex * codeLineHeight;
+		html += '<div style="position:absolute; left:0; right:0; top:' + rowTop + 'px; height:' + codeLineHeight + 'px; display:flex; align-items:center; gap:8px; box-sizing:border-box; pointer-events:auto;">';
+		html += '<div style="width:18px; flex:0 0 18px; text-align:right; font:700 11px monospace; color:#6d7680; line-height:' + codeLineHeight + 'px;">' + getDisplayLineNumber(lineIndex) + '</div>';
+		html += '<div style="display:flex; align-items:center; gap:4px; flex-wrap:nowrap; height:' + codeLineHeight + 'px;">';
 
 		for (var slotIndex = 0; slotIndex < stack.length; slotIndex++) {
 			var block = stack[slotIndex];
-			html += '<span style="display:inline-flex; align-items:center; justify-content:center; width:60px; height:33px; box-sizing:border-box; border:1px solid rgba(120,130,140,0.55); border-radius:3px; background:' + (slotIndex === stack.length - 1 ? 'rgba(244, 250, 244, 0.98)' : 'rgba(246, 246, 246, 0.96)') + '; color:#3b424a; font:600 10px/1 monospace; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding:0 4px;">' + escapeHtml(block.html) + '</span>';
+			html += '<span style="display:inline-flex; align-items:center; justify-content:center; width:60px; height:' + blockHeight + 'px; box-sizing:border-box; border:1px solid rgba(120,130,140,0.55); border-radius:3px; background:' + (slotIndex === stack.length - 1 ? 'rgba(244, 250, 244, 0.98)' : 'rgba(246, 246, 246, 0.96)') + '; color:#3b424a; font:600 10px/1 monospace; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding:0 4px;">' + escapeHtml(block.html) + '</span>';
 		}
 
 		html += '</div></div>';
 	}
 
-	html += '</div>';
+	html += '</div></div></div>';
 	return html;
 };
 

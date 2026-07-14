@@ -117,7 +117,7 @@ var render = function () {
 		}
 	}
 	ctx.restore();
-	
+
 	var heldBlock = getHeldBlock();
 	if (heldBlock) {
 		var dropPreviewRect = getBlockDropTarget(heldBlock);
