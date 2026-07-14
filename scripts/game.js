@@ -13,7 +13,8 @@ var gameOver = false;
 var paused = false;
 var firstTime = true;
 var codeLineHeight = blockHeight;
-var codeLineTop = 36;
+var codeGridVerticalOffset = 3 * codeLineHeight;
+var codeLineTop = 36 + codeGridVerticalOffset;
 var codeLineNumberWidth = 16;
 var codeLineTextLeft = 8;
 var codeLineBlockLeft = 30;
@@ -654,7 +655,6 @@ var buildDistributorPanelHtml = function() {
 
 	var html = '<div style="margin-top:16px; padding-top:10px; border-top:1px dashed rgba(110, 120, 130, 0.35);">';
 	html += '<div style="font:700 12px monospace; letter-spacing:0.04em; color:#5f6974; margin-bottom:8px;">BLOCK DISTRIBUTORS</div>';
-	html += '<div style="height:' + (codeLineHeight * 3) + 'px;"></div>';
 
 	for (var lineIndex = 0; lineIndex < distributorsByLine.length; lineIndex++) {
 		var stack = distributorsByLine[lineIndex] || [];
