@@ -17,6 +17,7 @@ var codeLineTop = 36;
 var codeLineNumberWidth = 16;
 var codeLineTextLeft = 8;
 var codeLineBlockLeft = 30;
+var codeLineCount = 15;
 var rightGutterWidth = codeLineBlockLeft;
 var codeGridBottom = 0;
 var baselineY = 0;
@@ -48,6 +49,10 @@ var getBlockLineIndex = function(block) {
 
 var getLineTop = function(index) {
 	return codeLineTop + (index * codeLineHeight);
+};
+
+var getDisplayLineNumber = function(lineIndex) {
+	return clamp(codeLineCount - lineIndex, 1, codeLineCount);
 };
 
 var getBlockDepositTop = function(lineIndex) {
@@ -653,7 +658,7 @@ var buildDistributorPanelHtml = function() {
 	for (var lineIndex = 0; lineIndex < distributorsByLine.length; lineIndex++) {
 		var stack = distributorsByLine[lineIndex] || [];
 		html += '<div style="display:flex; align-items:center; gap:8px; margin:4px 0;">';
-		html += '<div style="width:18px; text-align:right; font:700 11px monospace; color:#6d7680;">' + (lineIndex + 1) + '</div>';
+		html += '<div style="width:18px; text-align:right; font:700 11px monospace; color:#6d7680;">' + getDisplayLineNumber(lineIndex) + '</div>';
 		html += '<div style="display:flex; gap:4px; flex-wrap:nowrap;">';
 
 		for (var slotIndex = 0; slotIndex < stack.length; slotIndex++) {
@@ -769,10 +774,10 @@ var init = function() {
 
 	// set up code lines
 	codeLines = new Array;
-	for (i = 0; i < Math.floor((canvas.height - codeLineTop - 1) / codeLineHeight) + 1; i++) {
+	for (i = 0; i < codeLineCount; i++) {
 		codeLines[i] = {
 			index: i,
-			number: i + 1,
+			number: getDisplayLineNumber(i),
 			x: 0,
 			y: getLineTop(i),
 			width: canvas.width,
@@ -920,7 +925,7 @@ var update = function() {
 	}
 
 activeLineIndex = player.lineIndex;
-activeDisplayLineNumber = activeLineIndex + 1;
+activeDisplayLineNumber = getDisplayLineNumber(activeLineIndex);
 highlightedMarginIndex = activeLineIndex;
 	console.log({
 		playerLineIndex: player.lineIndex,
@@ -928,7 +933,7 @@ highlightedMarginIndex = activeLineIndex;
 		activeDisplayLineNumber: activeDisplayLineNumber,
 		highlightedMarginIndex: highlightedMarginIndex
 	});
-if (!Number.isInteger(player.lineIndex) || !Number.isInteger(activeLineIndex) || !Number.isInteger(activeDisplayLineNumber) || !Number.isInteger(highlightedMarginIndex) || player.lineIndex !== activeLineIndex || highlightedMarginIndex !== activeLineIndex || activeDisplayLineNumber !== activeLineIndex + 1) {
+if (!Number.isInteger(player.lineIndex) || !Number.isInteger(activeLineIndex) || !Number.isInteger(activeDisplayLineNumber) || !Number.isInteger(highlightedMarginIndex) || player.lineIndex !== activeLineIndex || highlightedMarginIndex !== activeLineIndex || activeDisplayLineNumber !== getDisplayLineNumber(activeLineIndex)) {
 		console.error('line sync mismatch', {
 			playerLineIndex: player.lineIndex,
 			activeLineIndex: activeLineIndex,
