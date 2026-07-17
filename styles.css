@@ -319,3 +319,15 @@ a:hover {
 	width: 650px;
 	margin: 10% auto;
 }
+
+#window-devhelp {
+	width: 560px;
+	margin: 8% auto;
+	text-align: left;
+}
+
+#window-devhelp p {
+	max-width: 520px;
+	margin-left: auto;
+	margin-right: auto;
+}

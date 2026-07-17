@@ -1,13 +1,165 @@
 // uniform block box used for every manipulable HTML tag
 var blockWidth = 60;
 var blockHeight = 33;
+var nextBlockId = 1;
+
+var escapeHtmlFragment = function(value) {
+	return String(value)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+};
+
+var isEditableBlockType = function(type) {
+	return type === 'markup-empty' || type === 'string-empty' || type === 'markup-choice-empty';
+};
+
+var isValidMarkupFragment = function(value) {
+	if (value === undefined || value === null)
+		return false;
+
+	var fragment = String(value).trim();
+	if (!fragment)
+		return false;
+
+	var template = document.createElement('template');
+	template.innerHTML = fragment;
+	return template.content.querySelector('*') !== null;
+};
+
+var syncBlockContentState = function(block) {
+	if (!block)
+		return block;
+
+	if (block.type === 'markup-choice-empty') {
+		var hasValidChoice = block.selectedChoiceIndex !== undefined && block.selectedChoiceIndex !== null && block.choices && block.choices[block.selectedChoiceIndex];
+		if (hasValidChoice) {
+			var selectedChoice = block.choices[block.selectedChoiceIndex];
+			block.label = selectedChoice.label;
+			block.outputHtml = selectedChoice.html;
+			block.isFilled = true;
+			block.isEditable = false;
+		}
+		else {
+			block.label = block.placeholderLabel || block.label || '[choix]';
+			block.outputHtml = '';
+			block.isEditable = true;
+			block.isFilled = false;
+		}
+	}
+	else if (block.type === 'markup-empty') {
+		if (block.isFilled) {
+			block.label = block.label || block.editableValue || '[markup]';
+			block.isEditable = false;
+		}
+		else {
+			block.label = block.placeholderLabel || block.label || '[markup]';
+			block.outputHtml = '';
+			block.isEditable = true;
+			block.isFilled = false;
+		}
+	}
+	else if (block.type === 'string-empty') {
+		if (block.isFilled) {
+			block.label = block.label || block.editableValue || '[texte]';
+			block.isEditable = false;
+		}
+		else {
+			block.label = block.placeholderLabel || block.label || '[texte]';
+			block.outputHtml = '';
+			block.isEditable = true;
+			block.isFilled = false;
+		}
+	}
+	else {
+		block.label = block.label || block.html || '';
+		if (block.outputHtml === undefined || block.outputHtml === null)
+			block.outputHtml = block.html || '';
+		block.isEditable = false;
+		block.isFilled = false;
+	}
+
+	return block;
+};
+
+var getBlockOutputHtml = function(block) {
+	if (!block)
+		return '';
+
+	if (block.outputHtml !== undefined && block.outputHtml !== null)
+		return block.outputHtml;
+
+	return block.html || '';
+};
+
+var setEditableBlockValue = function(block, value) {
+	if (!block)
+		return false;
+	if (block.type === 'markup-choice-empty')
+		return false;
+	if (block.type !== 'markup-empty' && block.type !== 'string-empty')
+		return false;
+
+	var nextValue = value === undefined || value === null ? '' : String(value);
+	if (block.type === 'markup-empty' && !isValidMarkupFragment(nextValue))
+		return false;
+
+	block.editableValue = nextValue;
+	block.isFilled = true;
+	block.isEditable = false;
+	block.label = block.editableValue;
+	block.outputHtml = block.type === 'string-empty' ? escapeHtmlFragment(block.editableValue) : block.editableValue;
+	return true;
+};
+
+var applyEditableBlockValue = function(block, value) {
+	return setEditableBlockValue(block, value);
+};
+
+var setMarkupChoice = function(block, choiceIndex) {
+	if (!block || block.type !== 'markup-choice-empty' || !block.choices || !block.choices.length)
+		return false;
+
+	var normalizedChoiceIndex = choiceIndex;
+	if (typeof normalizedChoiceIndex !== 'number')
+		normalizedChoiceIndex = parseInt(normalizedChoiceIndex, 10);
+	if (!Number.isInteger(normalizedChoiceIndex))
+		return false;
+	if (normalizedChoiceIndex < 0 || normalizedChoiceIndex >= block.choices.length)
+		return false;
+
+	var selectedChoice = block.choices[normalizedChoiceIndex];
+	if (!selectedChoice || selectedChoice.label === undefined || selectedChoice.html === undefined)
+		return false;
+
+	block.selectedChoiceIndex = normalizedChoiceIndex;
+	block.editableValue = '';
+	block.label = selectedChoice.label;
+	block.outputHtml = selectedChoice.html;
+	block.isFilled = true;
+	block.isEditable = false;
+	return true;
+};
 
 // block class
 function createBlock(tag) {
-	return {
+	var blockType = tag.type || 'markup';
+	var initialEditable = isEditableBlockType(blockType);
+	var block = {
+		id: tag.id !== undefined && tag.id !== null ? tag.id : nextBlockId++,
 		index: blocks.length,
+		type: blockType,
 		html: tag.html,
-		label: tag.html,
+		label: tag.label || tag.placeholderLabel || tag.html,
+		placeholderLabel: tag.placeholderLabel || tag.label || tag.html,
+		choices: tag.choices ? tag.choices.slice() : [],
+		selectedChoiceIndex: tag.selectedChoiceIndex !== undefined ? tag.selectedChoiceIndex : null,
+		editableValue: tag.editableValue !== undefined ? tag.editableValue : '',
+		outputHtml: tag.outputHtml !== undefined ? tag.outputHtml : (initialEditable ? '' : tag.html),
+		isEditable: tag.isEditable !== undefined ? tag.isEditable : initialEditable,
+		isFilled: tag.isFilled !== undefined ? tag.isFilled : false,
+		isSystemOnly: tag.isSystemOnly !== undefined ? tag.isSystemOnly : false,
 		lineIndex: null,
 		storageState: 'playArea',
 		distributorLineIndex: null,
@@ -120,5 +272,10 @@ function createBlock(tag) {
 				drawHeight
 			);
 		}
-	}
+	};
+
+	if (block.id >= nextBlockId)
+		nextBlockId = block.id + 1;
+
+	return syncBlockContentState(block);
 }

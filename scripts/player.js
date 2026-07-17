@@ -6,12 +6,18 @@ function createPlayer(w, h) {
 		width: w,
 		height: h,
 		delay: 0,
+		actionAnimation: createInactivePowerAnimationState(),
 		// position
 		x: canvas.width/2 - w/2,
 		y: canvas.height - h,
 		feetY: canvas.height,
 		targetFeetY: canvas.height,
 		lineIndex: 0,
+		visibleLineNumber: 1,
+		visibleFeetLineNumber: 1,
+		interactionLineIndex: null,
+		powerInteractionLineIndex: null,
+		powerVisibleLineNumber: null,
 		facingDirection: 'right',
 		prevX: 0,
 		frameX: 0,
@@ -30,33 +36,46 @@ function createPlayer(w, h) {
 		drop: false,
 		carrying: -1,
 		interactionTarget: null,
+		editInteractionTarget: null,
+		clipboardBlock: null,
+		interactionActions: [],
+		selectedInteractionActionIndex: 0,
+		interactionActionsSignature: '',
+		interactionMenuActive: false,
+		interactionActionHold: false,
+		unlockedPowers: null,
+		equippedPowers: null,
+		testLevelPowers: null,
+		activePowerId: null,
 		update: function() {			
+			if (this.actionAnimation && this.actionAnimation.active)
+				return;
+
 			// record old position
 			this.prevX = this.x;
-			
+
 			// pick up
-			if (!this.pickup && this.x == this.prevX && keys.space in keysDown) {
-				var pickupCandidate = getPickupCandidate();
-				if (this.carrying != -1 || pickupCandidate) {
+			if (!this.pickup && this.x == this.prevX && keys.space in keysDown && !this.interactionActionHold) {
+				if (handleSpaceOnRightPowerDistributor()) {
+					this.interactionActionHold = true;
+				}
+				else if (handleSpaceOnLeftDistributor()) {
+					this.interactionActionHold = true;
+				}
+				else if (this.carrying != -1) {
 					this.pickup = true;
 					this.frameX = 7;
 					this.velocity = 0;
-					
-					// mark as dropping so we don't pick it up again
-					if (this.carrying != -1)
-						this.drop = true;
-					else if (pickupCandidate && pickupCandidate.type === 'leftDistributor') {
-						var takenBlock = takeBlockFromDistributor(pickupCandidate.lineIndex);
-						if (takenBlock) {
-							this.carrying = takenBlock.index;
-							takenBlock.storageState = 'held';
-							takenBlock.distributorLineIndex = null;
-							takenBlock.distributorSlotIndex = null;
-						}
-					}
+					this.drop = true;
+					this.interactionActionHold = true;
+				}
+				else if (executeSelectedBlockAction()) {
+					this.interactionActionHold = true;
+					if (this.actionAnimation && this.actionAnimation.active)
+						return;
 				}
 			}
-			
+
 			// can't move if picking up
 			if (this.pickup)
 				return;
@@ -126,6 +145,11 @@ function createPlayer(w, h) {
 				this.velocity = 1;
 		},
 		draw: function() {
+			if (this.actionAnimation && this.actionAnimation.active) {
+				ctx.drawImage(this.sprite, this.frameX * this.width, this.frameY * this.height, this.width, this.height, this.x, Math.round(this.y), this.width, this.height);
+				return;
+			}
+
 			// increment animation delay
 			this.delay++;
 			
